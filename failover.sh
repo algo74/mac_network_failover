@@ -1,19 +1,18 @@
 #!/bin/bash
 
-# This script will switch to a failover location if the ethernet connection is not working.
-# It needs to be run as root, to be able to switch locations.
+# This script will reorder services so that failed Ethernet gets lower priority than Wi-Fi.
+# It needs to be run as root, to be able to reorder services.
+# Usage: sudo ./failover.sh [delay]
 
-# Variables - Change these to suit your needs
+# Variables - NOTE: Change these to suit your needs
 CHECK_DELAY=${1:-"5"} # How often to check the connection, in seconds
 SWITCH_FACTOR=2 # How much to increase the delay when in the failover mode
 ETHERNET_INTERFACE="USB 10/100/1000 LAN" # The name of the ethernet interface - must exist in System Preferences > Network
 WIFI_INTERFACE="Wi-Fi" # The name of the Wi-Fi interface - must exist in System Preferences > Network
-# ORIGINAL_LOCATION="Automatic" # The name of the original location (that prefers Ethernet) - must exist in System Preferences > Network
-# FAILOVER_LOCATION="Prefer WiFi" # The name of the failover location (that prefers Wi-Fi) - must be set up in System Preferences > Network
 
 check_ping() {
     # check if one of 8 pings using Ethernet to the given IP address is successful
-    # Change option -c 8 to change the number of pings if you want
+    # NOTE: Change option -c 8 to change the number of pings if you want
     ping -c 8 -o -S${ETHERNET_IP} "$1" > /dev/null 2>&1
 }
 
@@ -62,7 +61,7 @@ check_wifi_interface() {
 
 ethernet_not_working() {
     # check if we can ping Google's DNS server
-    # Change this to ping another server if you want
+    # NOTE: Change this to ping another server if you want
     ! check_ping 8.8.8.8
 }
 
@@ -70,7 +69,7 @@ ethernet_sure_not_working() {
     # make sure ETHERNET_INTERFACE is in the network service order
     check_ethernet_interface
     # check if we can ping another server
-    # Change this to ping another server if you want
+    # NOTE: Change this to ping another server if you want
     ! check_ping 1.1.1.1
 }
 
@@ -86,8 +85,11 @@ switch_to_failover() {
     local IFS=$'\n'
     local MOD_ORDER=($(echo "${ORDER}" | grep -Fxv "${WIFI_INTERFACE}"))
     # move Wi-Fi to the top of the network service order
-    networksetup -ordernetworkservices "${WIFI_INTERFACE}" "${MOD_ORDER[@]}"
-    SWITCHED=1
+    if networksetup -ordernetworkservices "${WIFI_INTERFACE}" "${MOD_ORDER[@]}" ; then 
+      SWITCHED=1
+    else 
+      echo "      failed to switch"
+    fi
 }
 
 switch_back() {
@@ -117,9 +119,7 @@ already_switched() {
 # cycle indefinitely
 while sleep $((CHECK_DELAY * (1 + SWITCH_FACTOR*SWITCHED) )); do # increase the delay if we are in failover mode
     update_ethernet_ip
-    # echo Ethernet IP: $ETHERNET_IP
-    echo [$(date)] Checking connection
-    # Check if the ethernet is working
+    # echo [$(date)] Checking connection
     if ethernet_not_working; then
         if ethernet_sure_not_working; then
             # Ethernet is not working, so failover 
